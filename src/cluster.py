@@ -9,12 +9,18 @@ from tslearn.neighbors import KNeighborsTimeSeries
 
 
 class ClusteringKMedoid:
-    def __init__(self, mode, K: int, X: np.ndarray, S: np.ndarray) -> None:
+    def __init__(
+        self, mode, K: int, X: np.ndarray, S: np.ndarray, min_dist_init: float = 0.0
+    ) -> None:
         self.mode = mode
         assert self.mode in ["adversarial", "normal"]
         self.K = K
         self.X = X
         self.S = S
+
+        self.min_dist_init = min_dist_init
+
+        self.data_dim = len(self.X.shape)
 
         self.num_samples = self.X.shape[0]
         self.get_all_data_distn()
@@ -37,10 +43,15 @@ class ClusteringKMedoid:
         assert len(centers) == self.K
         centers = self.X[centers]
         X = np.repeat(self.X, self.K, axis=0)
-        C = np.tile(centers, (self.num_samples, 1, 1))
-
+        if self.data_dim == 3:
+            C = np.tile(centers, (self.num_samples, 1, 1))
+        elif self.data_dim == 2:
+            C = np.tile(centers, (self.num_samples, 1))
         assert X.shape == C.shape
-        euc = np.sum((X - C) ** 2, axis=(1, 2)) ** 0.5
+        if self.data_dim == 3:
+            euc = np.sum((X - C) ** 2, axis=(1, 2)) ** 0.5
+        elif self.data_dim == 2:
+            euc = np.sum((X - C) ** 2, axis=1) ** 0.5
         euc_reshaped = euc.reshape(-1, self.K)
         cluster_assignment = np.argmin(euc_reshaped, axis=-1)
         cost = np.sum(np.min(euc_reshaped, axis=-1))
@@ -83,17 +94,31 @@ class ClusteringKMedoid:
     def get_init_centers(self):
         """return random points as initial centers"""
         index = np.random.choice(self.num_samples, self.K, replace=False)
+        # bad_init = True
+
+        # while bad_init:
+        #     bad_init = False
+        #     index = np.random.choice(self.num_samples, self.K, replace=False)
+        #     init_centers = self.X[index]
+        #     for i_idx, i in enumerate(init_centers):
+        #         for j_idx, j in enumerate(init_centers):
+        #             if i_idx != j_idx:
+        #                 dist = np.linalg.norm(i - j)
+        #                 if dist < self.min_dist_init:
+        #                     print("bad init", i, j)
+        #                     bad_init = True
         return index
 
-    def get_centers(self, max_iter=100):
+    def get_centers(self, max_iter=1000):
         init_ids = self.get_init_centers()
         centers = init_ids
-        print("Initial centers are ", init_ids)
+        # print("Initial centers are ", init_ids)
         members, tot_utility = self.cost_fn(init_ids)
+        # print("Initial utility is:", tot_utility)
 
         cc, SWAPED = 0, True
         while True:
-            print("Iter", cc)
+            # print("Iter", cc)
             SWAPED = False
             for i in range(self.num_samples):
                 if i not in centers:
@@ -101,16 +126,19 @@ class ClusteringKMedoid:
                         centers_ = deepcopy(centers)
                         centers_[j] = i
                         members_, tot_utility_ = self.cost_fn(centers_)
+                        # print(centers_, tot_utility_)
                         if tot_utility_ < tot_utility:
                             members, tot_utility = members_, tot_utility_
                             centers = centers_
                             SWAPED = True
-                            print("Change centers to ", centers)
+                            # print("Change centers to ", centers)
             if cc > max_iter:
-                print("End Searching by reaching maximum iteration", max_iter)
+                # print("End Searching by reaching maximum iteration", max_iter)
                 break
             if not SWAPED:
-                print("End Searching by no swaps")
+                # print("End Searching by no swaps")
                 break
             cc += 1
-        return centers, members, tot_utility
+
+        # print("Final utility is ", tot_utility)
+        return self.X[centers], centers, members, tot_utility
